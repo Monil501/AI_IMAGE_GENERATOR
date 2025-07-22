@@ -1,35 +1,45 @@
 import * as dotenv from "dotenv";
 import { createError } from "../error.js";
-import { Configuration, OpenAIApi } from "openai";
+import axios from "axios";
 
 dotenv.config();
 
-// Setup open ai api key
-const configuration = new Configuration({
-  apiKey: process.env.OPENAI_API_KEY,
-});
-const openai = new OpenAIApi(configuration);
-
-// Controller to generate Image
-
-export const generateImage = async (req, res, next) => {
-  try {
+// Controller to generate Image using ClipDrop API
+export const generateImage = async (req, res) => {
     const { prompt } = req.body;
+    const apiKey = process.env.CLIPDROP_API_KEY;
 
-    const response = await openai.createImage({
-      prompt,
-      n: 1,
-      size: "1024x1024",
-      response_format: "b64_json",
-    });
-    const generatedImage = response.data.data[0].b64_json;
-    return res.status(200).json({ photo: generatedImage });
-  } catch (error) {
-    next(
-      createError(
-        error.status,
-        error?.response?.data?.error?.message || error?.message
-      )
-    );
-  }
+    if (!apiKey) {
+      return res.status(500).json({ error: "ClipDrop API key not set in environment variables." });
+    }
+
+    if (!prompt || typeof prompt !== "string" || prompt.trim().length === 0) {
+      return res.status(400).json({ error: "Prompt is required and cannot be empty." });
+    }
+
+    try {
+      const response = await axios.post(
+        "https://clipdrop-api.co/text-to-image/v1",
+        { prompt },
+        {
+          headers: {
+            "x-api-key": apiKey,
+            "Content-Type": "application/json",
+          },
+          responseType: "arraybuffer",
+        }
+      );
+
+      // Convert image buffer to base64
+      const base64Image = Buffer.from(response.data, "binary").toString("base64");
+      return res.status(200).json({ photo: base64Image });
+    } catch (error) {
+      console.error("ClipDrop image generation error:", {
+        message: error.message,
+        responseData: error.response?.data,
+        status: error.response?.status,
+        stack: error.stack,
+      });
+      return res.status(500).json({ error: "Failed to generate image." });
+    }
 };
